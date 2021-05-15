@@ -51,6 +51,8 @@ library(plotly)
 library(leaflet)
 library(fastDummies)
 library(corrplot)
+library(knitr)
+library(rmarkdown)
 ```
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE}
@@ -91,7 +93,7 @@ df<- dat %>% mutate(
                     total_time = hms(total_time),
                     cloudness = as.numeric(cloudness)
                     )
-df[1,]
+df %>% head() %>% paged_table()
 ```
 
 **
@@ -139,9 +141,9 @@ vis1
 
 **
 
-- trip_min의 평균은 21분이고, wait_min의 평균은 9분이다.
+- trip_min (주행 시간 in munites)의 평균은 21분이고, wait_min의 평균은 9분이다.
 
-- wait_min이 100분이 넘는 데이터가 2개 존재한다. 기상악화와 연관된 것으로 예상되는데 한번 살펴보자.
+- wait_min (대기 시간 in munites) 이 100분이 넘는 데이터가 2개 존재한다. 기상악화와 연관된 것으로 예상되는데 한번 살펴보자.
 
 **
 
@@ -150,12 +152,12 @@ df %>%
   mutate(minutes_taken = hour(wait_time)*60 + minute(wait_time) + second(wait_time) / 60) %>%
   filter(minutes_taken > 100) %>%
   mutate(drive_speed = distance_kms / (hour(trip_time) + minute(trip_time) / 60 + second(trip_time) / 360)) %>%
-  select(trip_start_time, trip_end_time, trip_time, wait_time, surge_multiplier, distance_kms, drive_speed, temperature_value, feels_like, humidity, wind_speed, cloudness, precipitation)
+  select(trip_start_time, trip_end_time, trip_time, wait_time, surge_multiplier, distance_kms, drive_speed, temperature_value, feels_like, humidity, wind_speed, cloudness, precipitation) %>% paged_table()
 ```
 
 **
 
-- 역시 비가 왔었다.
+- 역시 비가 왔었다. (precipitation column 확인)
 
 - trip_start_time 변수의 경우, ride가 시작된 시점이 아니라 ride request를 시작한 시점이라는 걸 알 수 있다.
 
@@ -169,12 +171,14 @@ df %>%
   filter(minutes_taken > 50) %>%
   mutate(drive_speed = distance_kms / (hour(trip_time) + minute(trip_time) / 60 + second(trip_time) / 360)) %>%
   select(trip_start_time, trip_end_time, trip_time, wait_time, surge_multiplier, distance_kms, drive_speed, temperature_value, feels_like, humidity, wind_speed, cloudness, precipitation) %>%
-  arrange(desc(distance_kms)) %>% tail(1)
+  arrange(desc(distance_kms)) %>% tail(1) %>% paged_table()
 ```
 
 **
 
 - trip_min이 50 이상인 데이터 중 가장 적은 거리를 간 ride 역시 비가 왔었다.
+
+- precipitation 에 따라 다른 변수들도 살펴봐야겠다.
 
 **
 
@@ -185,13 +189,13 @@ df %>% mutate(minutes_taken = hour(trip_time)*60 + minute(trip_time) + second(tr
   summarise(cnt = n(),
             avg_surge = mean(surge_multiplier, na.rm = TRUE),
             avg_speed = mean(drive_speed, na.rm = TRUE)
-            )
+            ) %>% paged_table()
 
 ```
 
 **
 
-- 기상 (none, rain, snow)에 따른 surge_price의 변화와 평균 속도에 대해 살펴본 결과다. 어느 정도 영향은 있는 것 같다.
+- 기상 (none, rain, snow)에 따른 surge_multiplier의 변화와 평균 속도에 대해 살펴본 결과다. 어느 정도 영향이 있는지 average로만 보아서는 알 수 없다.
 
 - 아래에서는 precipitation 그룹 (none, rain, snow) 간 특별한 차이가 있는지 살펴보자. 차이가 있는 것처럼 보이면 ANOVA를 통해 그룹 간 차이가 통계적으로 유의미한지도 봐야겠다.
 
@@ -225,7 +229,7 @@ vis2
 
 **
 
-### 비용
+### 운행 요금
 ```{r echo=FALSE}
 # vis3<-ggplot(df, aes(x="", y = price_usd)) +
 #   geom_boxplot(fill = "green")
@@ -277,8 +281,8 @@ ggplotly(vis5)
 
 **
 
-### 사용한 서비스 type에 따른 거리 vs. 요금
-```{r warning=FALSE, message=FALSE}
+### 사용한 서비스 type에 따른 거리 vs. 운행 요금
+```{r echo=FALSE, warning=FALSE, message=FALSE}
 vis6<- ggplot(df, aes(x = distance_kms,
                y = price_usd,
                group = trip_type,
@@ -291,7 +295,7 @@ ggplotly(vis6)
 
 **
 
-+ uberBLACK의 경우, 프리미엄 서비스이기 때문에 uberX보다 거리 대비 비용높다.
++ uberBLACK의 경우, 프리미엄 서비스이기 때문에 uberX보다 거리 대비 비용이 높다.
 
 + Business의 경우, uberBLACK 보다 더 높은 것으로 보인다.
 
@@ -303,40 +307,60 @@ ggplotly(vis6)
 
 **
 
-### Driver마다 ride 한 횟수
-```{r echo=FALSE}
-df %>%
-  group_by(driver_name_en) %>%
-  summarise(num_drive = n()) %>%
-  arrange(desc(num_drive)) %>% head()
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+# ONE WAY ANOVA
+# y = price_usd; x = trip_type
+df %>% group_by(trip_type) %>%
+  summarise(cnt = n())
+
+
+ggplot(df, aes(x = trip_type,
+               y = price_usd,
+               fill = trip_type)) +
+  geom_boxplot()
+ggplotly()
+
+trip_type_anova<- aov(price_usd~as.factor(trip_type),
+                      data = df)
+summary(trip_type_anova) # at least one different
+par(mfrow=c(2,2))
+plot(trip_type_anova)
+
+log_trip_type_anova<- aov(log(price_usd)~as.factor(trip_type),
+                      data = df)
+summary(log_trip_type_anova) # at least one different
+par(mfrow=c(2,2))
+plot(log_trip_type_anova)
+
+mean(df$price_usd) # grand mean: 5.061593
+tapply(df$price_usd, df$trip_type, mean) # group mean
+tapply(df$price_usd, df$trip_type, sd) # group sd
+
+
+
 ```
 
-**
 
-+ Aleksandr님은 54번이나 운전했다. 이 정도면 이제는 거의 동네 친구일 듯하다.
-
-**
-
-### Driver마다 최대 속도를 계산하여 운전 습관을 살펴보기
+### Driver마다 최대 속도를 계산하여 운전 습관 살펴보기
 ```{r echo=FALSE}
 df %>%
   mutate(drive_speed = distance_kms / (hour(trip_time) + minute(trip_time) / 60 + second(trip_time) / 360)) %>%
   group_by(driver_name_en) %>%
   summarise(max_speed = max(drive_speed)) %>%
-  arrange(desc(max_speed))
+  arrange(desc(max_speed)) %>% head(10)
 
-df[df$driver_name_en=="Abuzar",]
+df[df$driver_name_en=="Abuzar",] %>% paged_table()
 ```
 
 **
 
-+ Abuzar씨의 최대속력인데 공항에 출발해서 딱 한번 운전했다.
++ 아래 테이블은 Abuzar씨의 trip 데이터인데 공항에 출발해서 딱 한번 운행했다.
 
-+ 최대속력은 거리/걸린시간으로 산출되어 전체 운전 거리에 대한 평균이지 실제 운전 시에는 이보다 더 빠른 속력으로 달렸을 수 있다.
++ 최대속력은 `거리/주행 시간`으로 산출되어 전체 운전 거리에 대한 평균 속도이지 실제 운전 시에는 이보다 더 빠른 속력으로 달렸을 수 있다.
 
-+ 여러번의 같은 행로에서 이 driver에게 단 한번밖에 배차가 안된 걸로 보아 사용자가 driver의 속력에 불편함을 느껴 ride 후기별점을 적게 줘서 다음부터는 매칭이 안됐을 수 있다는 유추를 해본다. 아쉽게도 후기별점에 대한 데이터는 없다.
++ 추측: 여러번의 같은 행로에서 Abuzar씨에게 단 한번밖에 배차가 안된 걸로 보아 사용자가 driver의 속력에 불편함을 느껴 ride 후기별점을 적게 줘서 다음부터는 매칭이 안됐을 수도 있겠다는 유추를 해본다. 아쉽게도 후기별점에 대한 데이터는 없다.
 
-+ 그렇다고 마냥 과속을 했다고 단정지을 수 없는 게 운전 시간대가 자정이다. 공항 주변길은 넓고 한가한 걸 고려하면 빠른 속소가 이해가 간다.
++ 그렇다고 마냥 과속을 했다고 단정지을 수 없는 게 운전 시간대가 자정이다. 공항 주변 길은 넓고 한가한 걸 고려하면 빠른 속도가 이해되기도 간다. 단 한번밖에 배차가 안된 이유는 우버의 배차 알고리즘에 따라 다를 수도 있다.
 
 + 다음은 그럼 비슷한 날씨, 시간에 같은 길을 간 다른 driver들의 속력과 비교해보자
 
@@ -347,20 +371,20 @@ df %>%
   filter(trip_start_address == df[df$driver_name_en=="Abuzar","trip_start_address"] &
            trip_end_address == df[df$driver_name_en=="Abuzar","trip_end_address"]) %>%
   mutate(drive_speed = distance_kms / (hour(trip_time) + minute(trip_time) / 60 + second(trip_time) / 360)) %>%
-  select(driver_name_en, trip_start_time, trip_end_time, drive_speed, temperature_value, 
+  select(driver_name_en, trip_start_time, trip_end_time, drive_speed, trip_time, wait_time, distance_kms, temperature_value, 
          humidity, wind_speed, cloudness, precipitation) %>%
-  arrange(desc(drive_speed))
+  arrange(desc(drive_speed)) %>% paged_table()
 ```
 
 **
 
-+ 비슷한 시간대에 같은 경로로 운전한 driver는 총 3명인데 speed의 차이 좀 있다.
++ 비슷한 시간대에 같은 경로로 운전한 driver는 총 3명인데 drive_speed 차이가 있다.
 
-+ 제공된 데이터에서 최대한 같은 환경에 있는 사람들을 고려한 건데 Traffic 있지 않는 이상 Abuzar씨는 속력이 좀 빠르지 않았나 싶다.
++ 제공된 데이터에서 최대한 같은 환경에 있는 Driver들을 고려한 건데 Traffic 있지 않는 이상 Abuzar씨는 속력이 좀 빠르지 않았나 싶다.
 
 + 하지만 위에서 유추했던 ride 후기별점 가설에 대한 실험은 sample size도 적거니와 매번 다른 driver와 매치가 되었기 때문에 진행하지 않기로 한다.
 
-+ 데이터를 보니 이상한 점이 있다. 2017년 11월 25일 자정 즈음에 1분 간격으로 Abuzar과 Leonid가 동일한 시간대에 drive를 한 것으로 나타났다. data syncing 과정에서 오류가 있지 않았나 싶다.
++ 데이터를 보니 이상한 점이 있다. 2017년 11월 25일 자정 즈음에 1분 간격으로 Abuzar과 Leonid가 동일한 시간대에 drive를 한 것으로 나타났다. 데이터 수집 혹은 syncing 과정에서 오류가 있지 않았나 싶다. 따라서 더 깊은 분석은 의미가 없을 것 같다.
 
 **
 
@@ -385,7 +409,7 @@ cor_df<- df %>% mutate(wait_minutes_taken = hour(wait_time)*60 + minute(wait_tim
          trip_type)
 
 cor_df<- dummy_cols(cor_df, select_columns = "trip_type")[,!(names(cor_df) %in% "trip_type")]
-ccccc<- cor(cor_df)
+CORR<- cor(cor_df)
 
 cor.mtest <- function(mat, ...) {
   mat <- as.matrix(mat)
@@ -404,7 +428,7 @@ cor.mtest <- function(mat, ...) {
 
 p.mat <- cor.mtest(cor_df)
 
-corrplot(ccccc, type="upper", order="hclust", tl.col = "black",
+corrplot(CORR, type="upper", order="hclust", tl.col = "black",
          p.mat = p.mat, sig.level = 0.10)
 ```
 
@@ -427,12 +451,12 @@ corrplot(ccccc, type="upper", order="hclust", tl.col = "black",
 df %>%
   group_by(trip_start_address) %>%
   summarise(pickup_cnt = n()) %>%
-  arrange(desc(pickup_cnt)) %>% head()
+  arrange(desc(pickup_cnt)) %>% head(6) %>% kable()
 # 도착지점에 따른 ride 횟수
 df %>%
   group_by(trip_end_address) %>%
   summarise(dropoff_cnt = n()) %>%
-  arrange(desc(dropoff_cnt)) %>% head()
+  arrange(desc(dropoff_cnt)) %>% head(6) %>% kable()
 ```
 **
 
@@ -449,7 +473,7 @@ df %>%
 df %>%
   group_by(trip_start_address, trip_end_address) %>%
   summarise(dropoff_cnt = n()) %>%
-  arrange(desc(dropoff_cnt)) %>% head()
+  arrange(desc(dropoff_cnt)) %>% head(10) %>% kable()
 
 ```
 
@@ -467,14 +491,16 @@ df %>%
   group_by(trip_start_address, trip_end_address) %>%
   summarise(pickup_cnt = n(),
             avg_time = mean(trip_start_hms)) %>%
-  arrange(desc(pickup_cnt)) 
+  arrange(desc(pickup_cnt)) %>% head(10) %>% kable()
 ```
 
 **
 
++ trip_start_time (승차시간)을 고려해 pickup_cnt 아래차순으로 나열한 결과이다.
+
 + Top 1,2 확인해보면 보통 10시37분에 출근 17시27분에 퇴근.
 
-+ Top 3 확인해보면 주로 16시쯤에 "집에서" 공항으로 출발한다. 위에서 컨설턴트가 아닐까 생각했는데, 회사가 아니라 집에서 출발하는 걸 보니 아닌 것 같다.
++ Top 3 확인해보면 주로 16시쯤에 "집에서" 공항으로 출발한다. 위에서 컨설턴트가 아닐까 생각했는데, 회사가 아니라 집에서 출발하는 걸 보니 아닌 것 같다. 프리랜서인가 hoxy...?
 
 **
 
@@ -484,10 +510,12 @@ df %>%
   group_by(trip_start_address, trip_end_address) %>%
   summarise(dropoff_cnt = n(),
             avg_time = mean(trip_end_hms)) %>%
-  arrange(desc(dropoff_cnt))
+  arrange(desc(dropoff_cnt))%>% head(10) %>% kable()
 ```
 
 **
+
++ trip_end_time (하차시간)을 고려해 dropoff_cnt 아래차순으로 나열한 결과이다.
 
 + Top 1을 보면 회사에 평균 11시05분에 도착한다.
 
